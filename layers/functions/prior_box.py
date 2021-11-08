@@ -5,7 +5,7 @@ from math import ceil
 
 
 class PriorBox(object):
-    def __init__(self, cfg, image_size=None, phase='train'):
+    def __init__(self, cfg, format:str="tensor", image_size=None, phase='train'):
         super(PriorBox, self).__init__()
         self.min_sizes = cfg['min_sizes']
         self.steps = cfg['steps']
@@ -13,6 +13,7 @@ class PriorBox(object):
         self.image_size = image_size
         self.feature_maps = [[ceil(self.image_size[0]/step), ceil(self.image_size[1]/step)] for step in self.steps]
         self.name = "s"
+        self.__format = format
 
     def forward(self):
         anchors = []
@@ -28,7 +29,17 @@ class PriorBox(object):
                         anchors += [cx, cy, s_kx, s_ky]
 
         # back to torch land
-        output = torch.Tensor(anchors).view(-1, 4)
+        if self.__format == "tensor":
+            output = torch.Tensor(anchors).view(-1, 4)
+        elif self.__format == "numpy":
+            output = np.array(anchors).reshape(-1, 4)
+        else:
+            print(TypeError(("ERROR: INVALID TYPE OF FORMAT")))
+
         if self.clip:
-            output.clamp_(max=1, min=0)
+            if self.__format == "tensor":
+                output.clamp_(max=1, min=0)
+            else:
+                output = np.clip(output, 0, 1)
+
         return output

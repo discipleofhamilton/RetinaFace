@@ -219,9 +219,19 @@ def decode(loc, priors, variances):
         decoded bounding box predictions
     """
 
-    boxes = torch.cat((
-        priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
-        priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = None
+    if isinstance(loc, torch.Tensor) and isinstance(priors, torch.Tensor) :
+        boxes = torch.cat((
+            priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
+            priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+
+    elif isinstance(loc, np.ndarray) and isinstance(priors, np.ndarray):
+        boxes = np.concatenate((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],priors[:, 2:] * np.exp(loc[:, 2:] * variances[1])), axis=1)
+
+    else:
+        print(type(loc), type(priors))
+        print(TypeError("ERROR: INVALID TYPE OF BOUNDING BOX"))
+
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -238,12 +248,26 @@ def decode_landm(pre, priors, variances):
     Return:
         decoded landm predictions
     """
-    landms = torch.cat((priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:],
+    landms = None
+    if isinstance(pre, torch.Tensor) and isinstance(priors, torch.Tensor):
+        landms = torch.cat((priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:],
                         priors[:, :2] + pre[:, 2:4] * variances[0] * priors[:, 2:],
                         priors[:, :2] + pre[:, 4:6] * variances[0] * priors[:, 2:],
                         priors[:, :2] + pre[:, 6:8] * variances[0] * priors[:, 2:],
                         priors[:, :2] + pre[:, 8:10] * variances[0] * priors[:, 2:],
                         ), dim=1)
+
+    elif isinstance(pre, np.ndarray) and isinstance(priors, np.ndarray):
+        landms = np.concatenate((priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:],
+                        priors[:, :2] + pre[:, 2:4] * variances[0] * priors[:, 2:],
+                        priors[:, :2] + pre[:, 4:6] * variances[0] * priors[:, 2:],
+                        priors[:, :2] + pre[:, 6:8] * variances[0] * priors[:, 2:],
+                        priors[:, :2] + pre[:, 8:10] * variances[0] * priors[:, 2:],
+                        ), axis=1)
+
+    else:
+        print(TypeError("ERROR: INVALID TYPE OF LANDMARKS"))
+    
     return landms
 
 

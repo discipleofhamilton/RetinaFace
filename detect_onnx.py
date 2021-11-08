@@ -11,6 +11,7 @@ import cv2
 from models.retinaface import RetinaFace
 from utils.box_utils import decode, decode_landm
 import time
+import onnxruntime as ort
 
 parser = argparse.ArgumentParser(description='Retinaface')
 
@@ -62,6 +63,11 @@ def load_model(model, pretrained_path, load_to_cpu):
     model.load_state_dict(pretrained_dict, strict=False)
     return model
 
+def load_model_ort(model_path):
+
+    ort_session = ort.InferenceSession(model_path)
+
+    return ort_session
 
 if __name__ == '__main__':
     torch.set_grad_enabled(False)
@@ -70,54 +76,48 @@ if __name__ == '__main__':
         cfg = cfg_mnet
     elif args.network == "resnet50":
         cfg = cfg_re50
-    # net and model
-    net = RetinaFace(cfg=cfg, phase = 'test')
-    net = load_model(net, args.trained_model, args.cpu)
-    net.eval()
+
+    # load onnx model
+    retinaface = load_model_ort(args.trained_model)
     print('Finished loading model!')
-    print(net)
-    cudnn.benchmark = True
-    device = torch.device("cpu" if args.cpu else "cuda")
-    net = net.to(device)
 
     resize = 1
 
     # testing begin
-    for i in range(100):
-        image_path = "./curve/test.jpg"
+    for i in range(1):
+        image_path = "/mnt/remote_61/Hamilton/Asian_face_10/val/Irene/Irene_0002.png"
         img_raw = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        # img_rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
 
-        img = np.float32(img_raw)
-        # img = np.float32(img_rgb)
+        img = np.float32(img_rgb)
 
         im_height, im_width, _ = img.shape
-        scale = torch.Tensor([img.shape[1], img.shape[0], img.shape[1], img.shape[0]])
+        scale = np.array([img.shape[1], img.shape[0], img.shape[1], img.shape[0]])
         img -= (104, 117, 123)
         img = img.transpose(2, 0, 1)
-        img = torch.from_numpy(img).unsqueeze(0)
-        img = img.to(device)
-        scale = scale.to(device)
+        img = np.expand_dims(img, axis=0)
 
         tic = time.time()
-        loc, conf, landms = net(img)  # forward pass
-        print('net forward time: {:.4f}'.format(time.time() - tic))
+        inputs = {"input": img}
+        loc, conf, landms = retinaface.run(None, inputs)
+        print('net forward time: {:.4f}s'.format(time.time() - tic))
 
-        priorbox = PriorBox(cfg, image_size=(im_height, im_width))
+        tic = time.time()
+        priorbox = PriorBox(cfg, image_size=(im_height, im_width), format="numpy")
         priors = priorbox.forward()
-        priors = priors.to(device)
-        prior_data = priors.data
-        boxes = decode(loc.data.squeeze(0), prior_data, cfg['variance'])
+
+        prior_data = priors
+
+        boxes = decode(np.squeeze(loc, axis=0), prior_data, cfg['variance'])
         boxes = boxes * scale / resize
-        boxes = boxes.cpu().numpy()
-        scores = conf.squeeze(0).data.cpu().numpy()[:, 1]
-        landms = decode_landm(landms.data.squeeze(0), prior_data, cfg['variance'])
-        scale1 = torch.Tensor([img.shape[3], img.shape[2], img.shape[3], img.shape[2],
+        scores = np.squeeze(conf, axis=0)[:, 1]
+
+        landms = decode_landm(np.squeeze(landms.data, axis=0), prior_data, cfg['variance'])
+
+        scale1 = np.array([img.shape[3], img.shape[2], img.shape[3], img.shape[2],
                                img.shape[3], img.shape[2], img.shape[3], img.shape[2],
                                img.shape[3], img.shape[2]])
-        scale1 = scale1.to(device)
         landms = landms * scale1 / resize
-        landms = landms.cpu().numpy()
 
         # ignore low scores
         inds = np.where(scores > args.confidence_threshold)[0]
@@ -143,6 +143,7 @@ if __name__ == '__main__':
         landms = landms[:args.keep_top_k, :]
 
         dets = np.concatenate((dets, landms), axis=1)
+        print('post processing time: {:.4f}s'.format(time.time() - tic))
 
         # show image
         if args.save_image:
@@ -166,5 +167,7 @@ if __name__ == '__main__':
             # save image
 
             name = "test.jpg"
+            # basename = os.path.basename(image_path)
+            # name = "./test_" + image_path
             cv2.imwrite(name, img_raw)
 
